@@ -6,6 +6,9 @@ import yfinance as yf
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 import matplotlib.pyplot as plt
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 # --- Configs ---
 SPLIT_RATIO = 0.85
@@ -15,22 +18,49 @@ LR = 0.01
 FUTURE_DAYS = 90
 DATA_PATH = "data/stock.csv"
 
-# --- Downloading stock data ---
 def load_stock_data(ticker):
-    end_date = pd.to_datetime('today').strftime('%Y-%m-%d')
-    data = yf.download(ticker, start="2000-01-01", end=end_date, auto_adjust=False)
-    data.to_csv(DATA_PATH)
-
-    # Fix first two lines in CSV if present
-    with open(DATA_PATH, 'r') as f:
-        lines = f.readlines()
-    with open(DATA_PATH, 'w') as f:
-        for i, line in enumerate(lines):
-            if i not in [1, 2]:  # skip line 1 and 2
-                f.write(line)
+    Ticker = yf.Ticker(ticker)
+    intervals = [
+        ("1m", "7d"),
+        ("2m", "60d"),
+        ("5m", "60d"),
+        ("15m", "60d"),
+        ("30m", "60d"),
+        ("60m", "730d"),
+        ("1d", "max"),
+    ]
+    full_data = []
+    for interval, period in intervals:
+        try:
+            data = Ticker.history(interval=interval, period=period)
+            if not data.empty:
+                data = data.copy()
+                data["Interval"] = interval
+                full_data.append(data)
+                logging.info(f"Loading: {interval} / {period} für {ticker}")
+        except Exception as e:
+            logging.error(f"Error for {interval}: {e}")
+            continue
+    if not full_data:
+        logging.warning("No data found. Are you giving a wrong ticker?")
+        return None
+    # Fix first two lines in file but no more need
+    #with open(DATA_PATH, 'r') as f:
+        #lines = f.readlines()
+    #with open(DATA_PATH, 'w') as f:
+        #for i, line in enumerate(lines):
+            #if i not in [1, 2]:  # skip line 1 and 2
+                #f.write(line)
+    # Comment: Vielleicht hat yfinanz das schon weggeworfen? Ich weiss nix.
+    combined = pd.concat(full_data)
+    combined = combined[~combined.index.duplicated(keep="first")]
+    combined = combined.sort_index()
+    combined.reset_index(inplace=True)
+    combined.to_csv(DATA_PATH, index=False)
+    logging.info(f"Saved im {DATA_PATH}")
 
 # Uncomment to use
-# load_stock_data("AAPL")
+load_stock_data("AAPL")
 
 # --- Data Prep ---
 df = pd.read_csv(DATA_PATH)
@@ -73,12 +103,16 @@ def build_model():
         loss=tf.keras.losses.MeanSquaredError(),
         optimizer=tf.keras.optimizers.Adam(learning_rate=LR)
     )
+    logging.info("Starting Modeltraining...")
     model.fit(X_train, y_train, epochs=EPOCHS, verbose=0)
+    logging.info("Modeltraining ends.")
     return model
 
 # --- Prediction ---
 def predict_model(model):
+    logging.info("Starting prediction on testing data...")
     predictions = model.predict(X_test)
+    logging.info("Prediction finished.")
     return scaler.inverse_transform(predictions)
 
 # --- Evaluation ---
@@ -86,13 +120,15 @@ def evaluate_model(predictions):
     mae = mean_absolute_error(y_test, predictions)
     mape = mean_absolute_percentage_error(y_test, predictions)
     accuracy = 1 - mape
+    logging.info(f"Evaluation: MAE={mae}, MAPE={mape}, Accuracy={accuracy}")
     return mae, mape, accuracy
 
 # --- Run Multiple Models ---
 def run_trials(n_trials):
     total_mae = total_mape = total_acc = 0
     final_predictions = None
-    for _ in range(n_trials):
+    for i in range(n_trials):
+        logging.info(f"Starting training run {i+1}/{n_trials}")
         model = build_model()
         preds = predict_model(model)
         mae, mape, acc = evaluate_model(preds)
@@ -100,20 +136,22 @@ def run_trials(n_trials):
         total_mape += mape
         total_acc += acc
         final_predictions = preds  # Keep last model's predictions
+    logging.info("All training runs finished.")
     return total_mae/n_trials, total_mape/n_trials, total_acc/n_trials, final_predictions
 
 mae, mape, acc, predictions = run_trials(1)
-print(f"Mean Absolute Error = {mae}")
-print(f"Mean Absolute Percentage Error = {mape}")
-print(f"Accuracy = {acc}")
-print(predictions.tolist())
+logging.info(f"Mean Absolute Error = {mae}")
+logging.info(f"Mean Absolute Percentage Error = {mape}")
+logging.info(f"Accuracy = {acc}")
+logging.debug(f"Predictions: {predictions.tolist()}")
 
 # --- Plot Predictions ---
 stock_df = pd.read_csv(DATA_PATH)
-date_series = pd.to_datetime(stock_df['Price']) # DON'T TOUCH THIS LINE - CRUCIAL
+date_series = pd.to_datetime(stock_df[stock_df.columns[0]], utc=True)
 actual_close = stock_df['Close'].values
 
 prediction_dates = date_series[-len(predictions):]
+logging.info("Plotting predictions vs actual data...")
 plt.figure(figsize=(12, 6))
 plt.plot(date_series, actual_close, label='Aktuelle Daten')
 plt.plot(prediction_dates, predictions, label='Vorhersagen')
@@ -123,16 +161,17 @@ plt.title('Aktienkursvorhersage vs. Aktuelle Daten')
 plt.legend()
 plt.gcf().autofmt_xdate()
 plt.show()
+logging.info("Plotting finished.")
 
 # --- Predict 90 Days Into the Future ---
+logging.info("Starting 90-day forcast...")
 last_seq = test_scaled[-SEQ_LEN:].flatten()
 future_preds = []
 future_dates = []
 last_known_date = date_series.iloc[-1]
 
-# Modell nur einmal trainieren und wiederverwenden
 future_model = build_model()
-for _ in range(FUTURE_DAYS):
+for i in range(FUTURE_DAYS):
     input_seq = last_seq.reshape(1, -1)
     next_val = future_model.predict(input_seq)  # DON'T TOUCH THIS LINE - CRUCIAL
     next_val_inv = scaler.inverse_transform(next_val)[0, 0]
@@ -141,7 +180,7 @@ for _ in range(FUTURE_DAYS):
     last_known_date += pd.Timedelta(days=1)
     future_dates.append(last_known_date)
     last_seq = np.append(last_seq[1:], scaler.transform([[next_val_inv]]))
-
+logging.info("90-day forcast completed.")
 plt.figure(figsize=(12, 6))
 plt.plot(date_series, actual_close, label='Aktuelle Daten')
 plt.plot(prediction_dates, predictions, label='Vorhersagen')
@@ -152,3 +191,4 @@ plt.title('Aktienkursvorhersage vs. Aktuelle Daten')
 plt.legend()
 plt.gcf().autofmt_xdate()
 plt.show()
+logging.info("Plot for 90-day forcast completed.")
