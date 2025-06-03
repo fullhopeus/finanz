@@ -7,6 +7,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 import matplotlib.pyplot as plt
 import logging
+import loader.stockdata as dl
 
 logging.basicConfig(level=logging.INFO)
 
@@ -16,51 +17,10 @@ SEQ_LEN = 10
 EPOCHS = 100
 LR = 0.01
 FUTURE_DAYS = 90
-DATA_PATH = "data/stock.csv"
+TICKER = "GOOGL"
+DATA_PATH = f"data/{TICKER}.csv"
 
-def load_stock_data(ticker):
-    Ticker = yf.Ticker(ticker)
-    intervals = [
-        ("1m", "7d"),
-        ("2m", "60d"),
-        ("5m", "60d"),
-        ("15m", "60d"),
-        ("30m", "60d"),
-        ("60m", "730d"),
-        ("1d", "max"),
-    ]
-    full_data = []
-    for interval, period in intervals:
-        try:
-            data = Ticker.history(interval=interval, period=period)
-            if not data.empty:
-                data = data.copy()
-                data["Interval"] = interval
-                full_data.append(data)
-                logging.info(f"Loading: {interval} / {period} für {ticker}")
-        except Exception as e:
-            logging.error(f"Error for {interval}: {e}")
-            continue
-    if not full_data:
-        logging.warning("No data found. Are you giving a wrong ticker?")
-        return None
-    # Fix first two lines in file but no more need
-    #with open(DATA_PATH, 'r') as f:
-        #lines = f.readlines()
-    #with open(DATA_PATH, 'w') as f:
-        #for i, line in enumerate(lines):
-            #if i not in [1, 2]:  # skip line 1 and 2
-                #f.write(line)
-    # Comment: Vielleicht hat yfinanz das schon weggeworfen? Ich weiss nix.
-    combined = pd.concat(full_data)
-    combined = combined[~combined.index.duplicated(keep="first")]
-    combined = combined.sort_index()
-    combined.reset_index(inplace=True)
-    combined.to_csv(DATA_PATH, index=False)
-    logging.info(f"Saved im {DATA_PATH}")
-
-# Uncomment to use
-load_stock_data("AAPL")
+dl.update(TICKER)
 
 # --- Data Prep ---
 df = pd.read_csv(DATA_PATH)
