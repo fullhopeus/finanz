@@ -2,9 +2,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from prophet import Prophet
 
-def vorhersage_prophet():
-    df = pd.read_csv('data/yf_data.csv')
-    df['ds'] = pd.to_datetime(df['Date'])
+TICKER = "GOOGL"
+DATA_PATH = f"data/{TICKER}.csv"
+df = pd.read_csv(DATA_PATH)
+
+def vorhersage_prophet(b):
+    df = pd.read_csv(DATA_PATH)
+    df['ds'] = pd.to_datetime(df['index'], utc=True).dt.tz_localize(None)  # Zeitzone entfernen
     df['y'] = df['Close']
     df = df[['ds', 'y']]
     model = Prophet()
