@@ -20,7 +20,7 @@ FUTURE_DAYS = 90
 TICKER = "GOOGL"
 DATA_PATH = f"data/{TICKER}.csv"
 
-dl.update(TICKER)
+dl.load(TICKER)
 
 # --- Data Prep ---
 df = pd.read_csv(DATA_PATH)
