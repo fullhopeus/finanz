@@ -7,7 +7,8 @@ import os
 logging.basicConfig(level=logging.INFO)
 
 def load(ticker):
-    DATA_PATH = f"data/{ticker}.csv"
+    ticker = ticker.upper()
+    DATA_PATH = f"data/stock/{ticker}.csv"
     Ticker = yf.Ticker(ticker)
     intervals = [
         ("1m", "7d"),
@@ -49,15 +50,22 @@ def load(ticker):
     logging.info(f"Saved im {DATA_PATH}")
 
 def read(ticker, time):
-    DATA_PATH = f"data/{ticker}.csv"
+    ticker = ticker.upper()
+    DATA_PATH = f"data/stock/{ticker}.csv"
     if not os.path.exists(DATA_PATH):
         logging.info(f"Data for {ticker} not found, loading ...")
         load(ticker)
-    df = pd.read_csv(DATA_PATH, index_col=0, parse_dates=True)
     dt = pd.to_datetime(time, format="%Y-%m-%dT%H:%M:%S.000Z", utc=True)
-    df = df[~df.index.duplicated(keep="first")]
-    df = df.sort_index()
-    df = df[df.index > dt]
+    chunks = []
+    for chunk in pd.read_csv(DATA_PATH, index_col=0, parse_dates=True, chunksize=10000):
+        chunk = chunk[~chunk.index.duplicated(keep="first")]
+        chunk = chunk.sort_index()
+        filtered = chunk[chunk.index > dt]
+        if not filtered.empty:
+            chunks.append(filtered)
+    if not chunks:
+        return []
+    df = pd.concat(chunks)
     df.reset_index(inplace=True)
     df.rename(columns={df.columns[0]: 'index'}, inplace=True)
     df['index'] = pd.to_datetime(df['index'], utc=True).dt.strftime('%Y-%m-%dT%H:%M:%S.000Z')
@@ -69,6 +77,7 @@ def read(ticker, time):
     return json.loads(df.to_json(orient='records'))
 
 def update(ticker, time):
+    ticker = ticker.upper()
     # The `time` is Javascript time.
     logging.info(f"Updating for {ticker} ...")
     dt = pd.to_datetime(time, format="%Y-%m-%dT%H:%M:%S.000Z", utc=True)
@@ -144,3 +153,12 @@ def update(ticker, time):
     columns = [col for col in desired_order if col in combined.columns]
     combined = combined[columns]
     return json.loads(combined.to_json(orient='records'))
+
+def update_all():
+    logging.info("Updating all stock data ...")
+    stock_files = [f for f in os.listdir("data/stock") if f.endswith(".csv")]
+    for file in stock_files:
+        ticker = file[:-4]  # delete '.csv'
+        logging.info(f"Updating {ticker} ...")
+        load(ticker)
+    logging.info("All stock data have been updated.")
