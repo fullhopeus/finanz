@@ -10,10 +10,20 @@ import threading
 import sys
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+import configparser
 
 # Config
 logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
+
+# Configuration
+config = configparser.ConfigParser()
+config.read('config.ini')
+
+AUTO_RESTART = config.getboolean('DEFAULT', 'auto_restart', fallback=True)
+AUTO_UPDATE = config.getboolean('DEFAULT', 'auto_update', fallback=True)
+
+logging.info(f"Configuration loaded: auto_restart={AUTO_RESTART}, auto_update={AUTO_UPDATE}")
 
 # Commands
 def listen_for_update():
@@ -37,12 +47,15 @@ def listen_for_update():
 
 # Startup and tasks to run on startup
 def startup_tasks():
-    for task in SCHEDULED_TASKS:
-        logging.info(f"Running startup task: {task['name']}")
-        try:
-            task['func']()
-        except Exception as e:
-            logging.error(f"Error in startup task {task['name']}: {e}")
+    if AUTO_UPDATE:
+        for task in SCHEDULED_TASKS:
+            logging.info(f"Running startup task: {task['name']}")
+            try:
+                task['func']()
+            except Exception as e:
+                logging.error(f"Error in startup task {task['name']}: {e}")
+    else:
+        logging.info("Auto-update is disabled. Skipping startup tasks.")
 
 SCHEDULED_TASKS = [
     {
@@ -53,12 +66,16 @@ SCHEDULED_TASKS = [
 ]
 
 def setup_scheduler():
-    scheduler = BackgroundScheduler()
-    for task in SCHEDULED_TASKS:
-        scheduler.add_job(task['func'], task['trigger'], id=task['name'], replace_existing=True)
-    scheduler.start()
-    logging.info("Scheduler started with all tasks.")
-    return scheduler
+    if AUTO_UPDATE:
+        scheduler = BackgroundScheduler()
+        for task in SCHEDULED_TASKS:
+            scheduler.add_job(task['func'], task['trigger'], id=task['name'], replace_existing=True)
+        scheduler.start()
+        logging.info("Scheduler started with all tasks.")
+        return scheduler
+    else:
+        logging.info("Auto-update is disabled. Scheduler not started.")
+        return None
 
 # Response time
 @app.before_request
@@ -138,21 +155,25 @@ def restart_application():
     os.execv(sys.executable, ['python'] + sys.argv)
 
 def setup_file_watcher():
-    try:
-        event_handler = FileWatcher(restart_application)
-        observer = Observer()
-        observer.schedule(event_handler, path='.', recursive=True)
-        observer.start()
-        logging.info("Application will restart when Python files are modified.")
-        return observer
-    except Exception as e:
-        logging.error(f"Failed to setup file watcher: {e}")
+    if AUTO_RESTART:
+        try:
+            event_handler = FileWatcher(restart_application)
+            observer = Observer()
+            observer.schedule(event_handler, path='.', recursive=True)
+            observer.start()
+            logging.info("Application will restart when Python files are modified.")
+            return observer
+        except Exception as e:
+            logging.error(f"Failed to setup file watcher: {e}")
+            return None
+    else:
+        logging.info("Auto-restart is disabled. File watcher not started.")
         return None
 
 # Main
 if __name__ == "__main__":
     threading.Thread(target=listen_for_update, daemon=True).start()
-    setup_scheduler()
+    scheduler = setup_scheduler()
     startup_tasks()
     file_observer = setup_file_watcher()
     try:
@@ -161,3 +182,5 @@ if __name__ == "__main__":
         if file_observer:
             file_observer.stop()
             file_observer.join()
+        if scheduler:
+            scheduler.shutdown()

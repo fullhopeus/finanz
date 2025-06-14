@@ -1,3 +1,14 @@
 Flask
 APScheduler
 watchdog
+pandas
+yfinance
+torch
+transformers
+datasets
+numpy
+tensorflow
+scikit-learn
+matplotlib
+prophet
+configparser
