@@ -12,3 +12,6 @@ scikit-learn
 matplotlib
 prophet
 configparser
+atexit
+signal
+psutil
