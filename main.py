@@ -213,9 +213,9 @@ def restart_application():
     
     script_path = os.path.join(project_root, 'main.py')
     
-    print(f"Restarting with executable: {venv_python}")
-    print(f"Script path: {script_path}")
-    print(f"Working directory: {os.getcwd()}")
+    logging.info(f"Restarting with executable: {venv_python}")
+    logging.info(f"Script path: {script_path}")
+    logging.info(f"Working directory: {os.getcwd()}")
     
     global restart_count
     restart_count += 1
