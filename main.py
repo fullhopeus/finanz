@@ -8,6 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import threading
 import sys
+import subprocess
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import configparser
@@ -125,8 +126,6 @@ def update_stock_data(ticker, time):
 def chrome_devtools_dummy():
     return jsonify({"message": ""})
 
-
-# File watcher for auto-restart; avoid auto restart of flask, because it will cause loop
 class FileWatcher(FileSystemEventHandler):
     def __init__(self, restart_callback):
         self.restart_callback = restart_callback
@@ -138,6 +137,10 @@ class FileWatcher(FileSystemEventHandler):
             return
         
         if not event.src_path.endswith('.py'):
+            return
+        
+        # Ignore changes in phi_env directory
+        if 'phi_env' in event.src_path:
             return
         
         current_time = time.time()
@@ -152,7 +155,23 @@ class FileWatcher(FileSystemEventHandler):
 
 def restart_application():
     logging.info("Restarting application...")
-    os.execv(sys.executable, ['python'] + sys.argv)
+    
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(project_root)
+    venv_python = os.path.join(project_root, 'phi_env', 'Scripts', 'python.exe')
+    
+    if not os.path.exists(venv_python):
+        venv_python = sys.executable
+        logging.warning(f"Virtual environment python not found, using {sys.executable}")
+    
+    script_path = os.path.join(project_root, 'main.py')
+    
+    print(f"Restarting with executable: {venv_python}")
+    print(f"Script path: {script_path}")
+    print(f"Working directory: {os.getcwd()}")
+    
+    subprocess.Popen([venv_python, script_path], cwd=project_root)
+    sys.exit(0)
 
 def setup_file_watcher():
     if AUTO_RESTART:
